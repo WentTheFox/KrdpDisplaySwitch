@@ -39,8 +39,8 @@ It only runs **Monday–Friday, 09:00–17:30**:
 ## Setup
 
 ```sh
-git clone <this repo> ~/git/krdp-display-switch
-cd ~/git/krdp-display-switch
+git clone <this repo> ~/git/WentTheFox/KrdpDisplaySwitch
+cd ~/git/WentTheFox/KrdpDisplaySwitch
 ./install.sh
 ```
 
