@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# While an RDP client is connected to krdpserver, switch to a single 1080p
+# display (the priority-1 output); restore the previous layout on disconnect.
+set -u
+
+PORT=3389
+POLL=2          # seconds between checks
+GRACE=5         # seconds a disconnect must last before restoring
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/krdp-display-switch/layout"
+mkdir -p "$(dirname "$STATE")"
+
+# Weekdays 09:00-17:30 only
+in_window() {
+    local d t
+    d=$(date +%u); t=$(date +%H%M)
+    (( d <= 5 && 10#$t >= 900 && 10#$t < 1730 ))
+}
+
+[[ ${1:-} == --check-window ]] && { in_window; exit; }
+
+connected() {
+    ss -tnpH state established "( sport = :$PORT )" 2>/dev/null | grep -q krdpserver
+}
+
+snapshot() {
+    kscreen-doctor -j | jq -r '.outputs[] | select(.connected)
+        | "\(.name) \(.enabled) \(.currentModeId) \(.pos.x) \(.pos.y) \(.priority)"' > "$STATE"
+}
+
+apply_rdp_layout() {
+    local primary mode args=()
+    primary=$(kscreen-doctor -j | jq -r '[.outputs[] | select(.connected and .enabled)] | sort_by(.priority) | .[0].name')
+    mode=$(kscreen-doctor -j | jq -r --arg o "$primary" '.outputs[] | select(.name==$o) | .modes
+        | map(select(.size.width==1920 and .size.height==1080)) | min_by((.refreshRate - 60) | fabs) | .id')
+    while read -r name _; do
+        [[ $name == "$primary" ]] || args+=("output.$name.disable")
+    done < "$STATE"
+    args+=("output.$primary.mode.$mode" "output.$primary.position.0,0")
+    echo "RDP connected: ${args[*]}"
+    kscreen-doctor "${args[@]}"
+}
+
+restore_layout() {
+    [[ -s $STATE ]] || return
+    local args=()
+    while read -r name enabled mode x y prio; do
+        if [[ $enabled == true ]]; then
+            args+=("output.$name.enable" "output.$name.mode.$mode" "output.$name.position.$x,$y" "output.$name.priority.$prio")
+        else
+            args+=("output.$name.disable")
+        fi
+    done < "$STATE"
+    echo "RDP disconnected, restoring: ${args[*]}"
+    kscreen-doctor "${args[@]}"
+    rm -f "$STATE"
+}
+
+on_exit() { [[ -s $STATE ]] && restore_layout; exit 0; }
+trap on_exit TERM INT
+
+# A leftover snapshot means we were stopped mid-session: treat it as active.
+active=false; [[ -s $STATE ]] && active=true
+gone=0
+
+while true; do
+    if connected; then
+        gone=0
+        if ! $active; then snapshot; apply_rdp_layout; active=true; fi
+    elif $active; then
+        gone=$((gone + POLL))
+        if (( gone >= GRACE )); then restore_layout; active=false; gone=0; fi
+    fi
+    # Outside the time window, only exit once no session is being handled
+    if ! $active && ! in_window; then echo "Outside time window, exiting"; exit 0; fi
+    sleep "$POLL" & wait $!
+done

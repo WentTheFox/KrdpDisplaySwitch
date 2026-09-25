@@ -1,0 +1,9 @@
+[Unit]
+Description=Start RDP display switching on weekdays at 09:00
+
+[Timer]
+OnCalendar=Mon..Fri 09:00
+Unit=krdp-display-switch.service
+
+[Install]
+WantedBy=timers.target

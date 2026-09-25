@@ -1,0 +1,12 @@
+[Unit]
+Description=Switch to a single 1080p display while an RDP client is connected
+After=plasma-workspace.target app-org.kde.krdpserver.service
+PartOf=graphical-session.target
+
+[Service]
+ExecCondition=%h/.local/bin/krdp-display-switch --check-window
+ExecStart=%h/.local/bin/krdp-display-switch
+Restart=on-failure
+
+[Install]
+WantedBy=plasma-workspace.target
